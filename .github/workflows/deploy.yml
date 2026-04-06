@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       apps: ${{ steps.scan.outputs.apps }}
+      has_apps: ${{ steps.scan.outputs.has_apps }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -31,6 +32,8 @@ jobs:
           # Find every directory under apps/ that contains a package.json
           apps=()
           for dir in apps/*/; do
+            # Skip if the glob matched nothing (empty directory)
+            [ -d "$dir" ] || continue
             slug=$(basename "$dir")
             if [ -f "$dir/package.json" ]; then
               apps+=("$slug")
@@ -38,14 +41,22 @@ jobs:
           done
 
           # Encode as a JSON array for the matrix
-          json=$(printf '%s\n' "${apps[@]}" | jq -R . | jq -cs .)
+          if [ ${#apps[@]} -eq 0 ]; then
+            json='[]'
+            echo "has_apps=false" >> "$GITHUB_OUTPUT"
+          else
+            json=$(printf '%s\n' "${apps[@]}" | jq -R . | jq -cs .)
+            echo "has_apps=true" >> "$GITHUB_OUTPUT"
+          fi
+
           echo "apps=$json" >> "$GITHUB_OUTPUT"
           echo "Discovered apps: $json"
 
 # ── Job 2: Build each app in parallel ────────────────────────────────────────
   build-app:
     needs: discover
-    if: needs.discover.outputs.apps != '[]'
+    # Skip entirely when there are no apps to build
+    if: needs.discover.outputs.has_apps == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -76,8 +87,6 @@ jobs:
         working-directory: apps/${{ matrix.app }}
         run: npm run build
 
-      # Upload the dist/ output as a named artifact so the assemble job can
-      # collect all apps in one place
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
@@ -88,25 +97,26 @@ jobs:
 # ── Job 3: Assemble all outputs + generate registry.json + deploy ─────────────
   assemble-and-deploy:
     needs: [discover, build-app]
+    # Run even if build-app was skipped (no apps), but not if it failed
+    if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
- 
+
     steps:
       - name: Checkout (for root index.html and app configs)
-        uses: actions/checkout@v4
- 
+        uses: actions/checkout@v6
+
       - name: Create site directory
         run: mkdir -p _site/apps
- 
+
       - name: Copy root landing page
         run: cp index.html _site/index.html
- 
-      # Download each app artifact individually into its own named subdirectory.
-      # Using pattern: with v8 merges all artifacts into a flat directory, so
-      # instead we loop over the discovered apps and download each one by name.
+
+      # Only download artifacts if there are apps to download
       - name: Download app artifacts individually
+        if: needs.discover.outputs.has_apps == 'true'
         run: |
           apps='${{ needs.discover.outputs.apps }}'
           echo "$apps" | jq -r '.[]' | while read -r slug; do
@@ -119,11 +129,10 @@ jobs:
           done
         env:
           GH_TOKEN: ${{ github.token }}
- 
-      - name: Debug artifact structure
-        run: find _artifacts/ | head -60
- 
+
+      # Only place app builds if there are apps
       - name: Place app builds into _site/apps/
+        if: needs.discover.outputs.has_apps == 'true'
         run: |
           for app_dir in _artifacts/*/; do
             slug=$(basename "$app_dir")
@@ -132,43 +141,47 @@ jobs:
             cp -r "$app_dir"/. "_site/apps/$slug/"
             echo "Placed $slug"
           done
- 
+
       # Generate apps/registry.json from each app's app.config.json
       - name: Generate registry.json
         run: |
           node - <<'EOF'
           const fs   = require('fs');
           const path = require('path');
- 
+
           const appsDir = path.join(process.cwd(), 'apps');
           const entries = [];
- 
+
           for (const slug of fs.readdirSync(appsDir)) {
-            const configPath = path.join(appsDir, slug, 'app.config.json');
+            // Skip .gitkeep and any non-directory entries
+            const fullPath = path.join(appsDir, slug);
+            if (!fs.statSync(fullPath).isDirectory()) continue;
+
+            const configPath = path.join(fullPath, 'app.config.json');
             if (!fs.existsSync(configPath)) continue;
- 
+
             let config = {};
             try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
             catch (e) { console.warn(`Skipping ${slug}: invalid app.config.json`); continue; }
- 
+
             entries.push({ slug, ...config });
           }
- 
+
           // Sort alphabetically by name
           entries.sort((a, b) => a.name.localeCompare(b.name));
- 
+
           const registry = { generated: new Date().toISOString(), apps: entries };
           const outDir   = path.join(process.cwd(), '_site', 'apps');
           fs.mkdirSync(outDir, { recursive: true });
           fs.writeFileSync(path.join(outDir, 'registry.json'), JSON.stringify(registry, null, 2));
           console.log(`Registry written with ${entries.length} app(s)`);
           EOF
- 
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
           path: _site
- 
+
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
