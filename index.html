@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Apps</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.01em;
+    }
+
+    .header-sub {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+
+    .badge {
+      font-size: 12px;
+      font-weight: 500;
+      color: #64748b;
+      background: #f1f5f9;
+      border-radius: 6px;
+      padding: 5px 12px;
+    }
+
+    main {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 36px 24px;
+    }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+
+    .section-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 24px;
+      letter-spacing: -0.01em;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 24px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      flex-direction: column;
+      transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
+      cursor: pointer;
+    }
+
+    .card:hover {
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+      border-color: #cbd5e1;
+      transform: translateY(-2px);
+    }
+
+    .card-icon {
+      font-size: 28px;
+      margin-bottom: 14px;
+    }
+
+    .card-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      padding: 2px 8px;
+      margin-bottom: 10px;
+      align-self: flex-start;
+    }
+
+    .card-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 8px;
+      letter-spacing: -0.01em;
+    }
+
+    .card-desc {
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.6;
+      flex: 1;
+    }
+
+    .card-footer {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-updated {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .card-arrow {
+      font-size: 14px;
+      color: #cbd5e1;
+      transition: color 0.15s, transform 0.15s;
+    }
+
+    .card:hover .card-arrow {
+      color: #64748b;
+      transform: translateX(3px);
+    }
+
+    .empty {
+      text-align: center;
+      padding: 64px 24px;
+      color: #94a3b8;
+    }
+
+    .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-title { font-size: 16px; font-weight: 600; color: #64748b; margin-bottom: 6px; }
+    .empty-sub { font-size: 13px; }
+
+    .error {
+      background: #fff5f5;
+      border: 1px solid #fed7d7;
+      border-radius: 8px;
+      padding: 16px 20px;
+      color: #c53030;
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+
+    footer {
+      text-align: center;
+      padding: 32px 24px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <div class="header-title">My Apps</div>
+      <div class="header-sub">GitHub Pages · Auto-deployed via GitHub Actions</div>
+    </div>
+    <div class="badge" id="app-count">Loading…</div>
+  </header>
+
+  <main>
+    <div class="section-label">Applications</div>
+    <div class="section-title">All Apps</div>
+    <div id="error-box" class="error" style="display:none;"></div>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <footer>
+    Deployed automatically from <code>apps/</code> directory via GitHub Actions
+  </footer>
+
+  <script>
+    // Colour palette — cycles through for each app card
+    const PALETTE = [
+      { color: "#1a6b3c", bg: "#f0faf4" },
+      { color: "#b84c00", bg: "#fff7f3" },
+      { color: "#1a3a8f", bg: "#f2f5ff" },
+      { color: "#6b21a8", bg: "#faf5ff" },
+      { color: "#0e7490", bg: "#f0fdff" },
+      { color: "#9d174d", bg: "#fff1f5" },
+    ];
+
+    async function loadApps() {
+      const grid = document.getElementById("grid");
+      const countBadge = document.getElementById("app-count");
+      const errorBox = document.getElementById("error-box");
+
+      let registry;
+      try {
+        const res = await fetch("apps/registry.json");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        registry = await res.json();
+      } catch (err) {
+        errorBox.textContent = `Could not load app registry: ${err.message}. Make sure the site has been built and deployed.`;
+        errorBox.style.display = "block";
+        countBadge.textContent = "0 apps";
+        grid.innerHTML = `
+          <div class="empty" style="grid-column:1/-1">
+            <div class="empty-icon">📭</div>
+            <div class="empty-title">No apps found</div>
+            <div class="empty-sub">Deploy your first app to the <code>apps/</code> directory.</div>
+          </div>`;
+        return;
+      }
+
+      const apps = registry.apps || [];
+      countBadge.textContent = `${apps.length} app${apps.length !== 1 ? "s" : ""}`;
+
+      if (apps.length === 0) {
+        grid.innerHTML = `
+          <div class="empty" style="grid-column:1/-1">
+            <div class="empty-icon">📭</div>
+            <div class="empty-title">No apps yet</div>
+            <div class="empty-sub">Add a folder to <code>apps/</code> with an <code>app.config.json</code> to get started.</div>
+          </div>`;
+        return;
+      }
+
+      grid.innerHTML = apps.map((app, i) => {
+        const { color, bg } = PALETTE[i % PALETTE.length];
+        return `
+          <a class="card" href="apps/${app.slug}/">
+            <div class="card-icon">${app.icon || "📦"}</div>
+            <div class="card-tag" style="background:${bg}; color:${color};">${app.category || "App"}</div>
+            <div class="card-name">${app.name}</div>
+            <div class="card-desc">${app.description || ""}</div>
+            <div class="card-footer">
+              <span class="card-updated">${app.updated ? "Updated " + app.updated : ""}</span>
+              <span class="card-arrow">→</span>
+            </div>
+          </a>`;
+      }).join("");
+    }
+
+    loadApps();
+  </script>
+
+</body>
+</html>

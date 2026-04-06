@@ -1,0 +1,174 @@
+name: Build & Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+# ── Job 1: Discover which apps need building ──────────────────────────────────
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.scan.outputs.apps }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Scan apps/ for buildable apps
+        id: scan
+        run: |
+          # Find every directory under apps/ that contains a package.json
+          apps=()
+          for dir in apps/*/; do
+            slug=$(basename "$dir")
+            if [ -f "$dir/package.json" ]; then
+              apps+=("$slug")
+            fi
+          done
+
+          # Encode as a JSON array for the matrix
+          json=$(printf '%s\n' "${apps[@]}" | jq -R . | jq -cs .)
+          echo "apps=$json" >> "$GITHUB_OUTPUT"
+          echo "Discovered apps: $json"
+
+# ── Job 2: Build each app in parallel ────────────────────────────────────────
+  build-app:
+    needs: discover
+    if: needs.discover.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.discover.outputs.apps) }}
+      fail-fast: false   # keep building other apps if one fails
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # JB edit: Claude originally set the following attributes that I removed
+      # as we aren't committing package-lock.json files:
+      #    1. cache: npm
+      #    2. cache-dependency-path: apps/${{ matrix.app }}/package-lock.json
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # JB edit: Claude originally set the command to `npm ci`. I changed it to
+      # `npm install` so that a package-lock.json file doesn't need to be
+      # generated before committing a new app to this repository.
+      - name: Install dependencies
+        working-directory: apps/${{ matrix.app }}
+        run: npm install
+
+      - name: Build
+        working-directory: apps/${{ matrix.app }}
+        run: npm run build
+
+      # Upload the dist/ output as a named artifact so the assemble job can
+      # collect all apps in one place
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-${{ matrix.app }}
+          path: apps/${{ matrix.app }}/dist/
+          retention-days: 1
+
+# ── Job 3: Assemble all outputs + generate registry.json + deploy ─────────────
+  assemble-and-deploy:
+    needs: [discover, build-app]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+ 
+    steps:
+      - name: Checkout (for root index.html and app configs)
+        uses: actions/checkout@v4
+ 
+      - name: Create site directory
+        run: mkdir -p _site/apps
+ 
+      - name: Copy root landing page
+        run: cp index.html _site/index.html
+ 
+      # Download each app artifact individually into its own named subdirectory.
+      # Using pattern: with v8 merges all artifacts into a flat directory, so
+      # instead we loop over the discovered apps and download each one by name.
+      - name: Download app artifacts individually
+        run: |
+          apps='${{ needs.discover.outputs.apps }}'
+          echo "$apps" | jq -r '.[]' | while read -r slug; do
+            echo "Downloading artifact for: $slug"
+            mkdir -p "_artifacts/$slug"
+            gh run download ${{ github.run_id }} \
+              --name "app-$slug" \
+              --dir "_artifacts/$slug"
+            echo "Downloaded $slug"
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+ 
+      - name: Debug artifact structure
+        run: find _artifacts/ | head -60
+ 
+      - name: Place app builds into _site/apps/
+        run: |
+          for app_dir in _artifacts/*/; do
+            slug=$(basename "$app_dir")
+            echo "--- Placing: $slug"
+            mkdir -p "_site/apps/$slug"
+            cp -r "$app_dir"/. "_site/apps/$slug/"
+            echo "Placed $slug"
+          done
+ 
+      # Generate apps/registry.json from each app's app.config.json
+      - name: Generate registry.json
+        run: |
+          node - <<'EOF'
+          const fs   = require('fs');
+          const path = require('path');
+ 
+          const appsDir = path.join(process.cwd(), 'apps');
+          const entries = [];
+ 
+          for (const slug of fs.readdirSync(appsDir)) {
+            const configPath = path.join(appsDir, slug, 'app.config.json');
+            if (!fs.existsSync(configPath)) continue;
+ 
+            let config = {};
+            try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
+            catch (e) { console.warn(`Skipping ${slug}: invalid app.config.json`); continue; }
+ 
+            entries.push({ slug, ...config });
+          }
+ 
+          // Sort alphabetically by name
+          entries.sort((a, b) => a.name.localeCompare(b.name));
+ 
+          const registry = { generated: new Date().toISOString(), apps: entries };
+          const outDir   = path.join(process.cwd(), '_site', 'apps');
+          fs.mkdirSync(outDir, { recursive: true });
+          fs.writeFileSync(path.join(outDir, 'registry.json'), JSON.stringify(registry, null, 2));
+          console.log(`Registry written with ${entries.length} app(s)`);
+          EOF
+ 
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+ 
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
