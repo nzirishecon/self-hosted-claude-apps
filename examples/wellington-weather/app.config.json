@@ -1,0 +1,7 @@
+{
+  "name": "Wellington Weather Explorer",
+  "description": "Monthly weather statistics for Wellington Central, NZ (April 2025 – March 2026), covering rainfall, wind speed, and temperature with outdoor activity guidance. Trend commentary is AI-generated.",
+  "icon": "🌬️",
+  "category": "weather",
+  "updated": "2026-04-07"
+}
