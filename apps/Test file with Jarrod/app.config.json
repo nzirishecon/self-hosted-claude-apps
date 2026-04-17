@@ -1,7 +1,0 @@
-{
-  "name": "NZ Economic Indicators",
-  "description": "Live dashboard of New Zealand's key economic statistics — CPI, HLFS, and GDP — with on-demand AI commentary powered by Claude.",
-  "icon": "📊",
-  "category": "Economics",
-  "updated": "2026-03-20"
-}
